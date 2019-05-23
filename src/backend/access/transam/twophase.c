@@ -40,6 +40,7 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#include <commands/dbcommands.h>
 
 #include "access/distributedlog.h"
 #include "access/heapam.h"
@@ -1427,6 +1428,15 @@ FinishPreparedTransaction(const char *gid, bool isCommit, bool raiseErrorIfNotFo
 
 	/* Make sure files supposed to be dropped are dropped */
 	DropRelationFiles(delrels, ndelrels, false);
+
+	for (int i = 0; i < ndelrels; i++)
+	{
+		RelFileNodeWithStorageType delrel = delrels[i];
+		bool is_database = (delrel.node.relNode == InvalidOid);
+		if (is_database)
+			DropDatabaseDirectory(delrel.node.dbNode,
+								  delrel.node.spcNode);
+	}
 
 	/*
 	 * Handle cache invalidation messages.

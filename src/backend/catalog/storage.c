@@ -456,8 +456,8 @@ smgrGetPendingDeletes(bool forCommit, RelFileNodeWithStorageType **ptr)
 	nrels = 0;
 	for (pending = pendingDeletes; pending != NULL; pending = pending->next)
 	{
-		if (pending->nestLevel >= nestLevel && pending->atCommit == forCommit &&
-			!pending->dbOperation
+		if (pending->nestLevel >= nestLevel && pending->atCommit == forCommit //&&
+			//!pending->dbOperation
 			/*
 			 * Greenplum allows transactions that access temporary tables to be
 			 * prepared.
@@ -475,8 +475,8 @@ smgrGetPendingDeletes(bool forCommit, RelFileNodeWithStorageType **ptr)
 	*ptr = rptr;
 	for (pending = pendingDeletes; pending != NULL; pending = pending->next)
 	{
-		if (pending->nestLevel >= nestLevel && pending->atCommit == forCommit &&
-			!pending->dbOperation
+		if (pending->nestLevel >= nestLevel && pending->atCommit == forCommit //&&
+			//!pending->dbOperation
 			/*
 			 * Keep this loop condition identical to above
 			 */

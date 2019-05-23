@@ -1707,11 +1707,16 @@ DropRelationFiles(RelFileNodeWithStorageType *delrels, int ndelrels, bool isRedo
 	SMgrRelation *srels;
 	char         *srelstorages;
 	int			i;
+	bool		is_database;
 
 	srels = palloc(sizeof(SMgrRelation) * ndelrels);
 	srelstorages = palloc(sizeof(char) * ndelrels);
 	for (i = 0; i < ndelrels; i++)
 	{
+		RelFileNodeWithStorageType delrel = delrels[i];
+		is_database = (delrel.node.relNode == InvalidOid);
+		if (is_database)
+			continue;
 		SMgrRelation srel = smgropen(delrels[i].node, InvalidBackendId);
 
 		if (isRedo)
@@ -1725,16 +1730,20 @@ DropRelationFiles(RelFileNodeWithStorageType *delrels, int ndelrels, bool isRedo
 		srelstorages[i] = delrels[i].relstorage;
 	}
 
-	smgrdounlinkall(srels, ndelrels, isRedo, srelstorages);
+	if (!is_database) {
+		smgrdounlinkall(srels, ndelrels, isRedo, srelstorages);
+		
+		/*
+		 * Call smgrclose() in reverse order as when smgropen() is called.
+		 * This trick enables remove_from_unowned_list() in smgrclose()
+		 * to search the SMgrRelation from the unowned list,
+		 * with O(1) performance.
+		 */
 
-	/*
-	 * Call smgrclose() in reverse order as when smgropen() is called.
-	 * This trick enables remove_from_unowned_list() in smgrclose()
-	 * to search the SMgrRelation from the unowned list,
-	 * with O(1) performance.
-	 */
-	for (i = ndelrels - 1; i >= 0; i--)
-		smgrclose(srels[i]);
+		for (i = ndelrels - 1; i >= 0; i--)
+			smgrclose(srels[i]);
+	}
+
 	pfree(srelstorages);
 	pfree(srels);
 }
