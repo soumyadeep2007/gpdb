@@ -1428,7 +1428,8 @@ movedb(const char *dbname, const char *tblspcname)
 	 * register the db_id with pending deletes list to schedule removing database
 	 * directory on transaction commit.
 	 */
-	DatabaseDropStorage(db_id, src_tblspcoid);
+	//DatabaseDropStorage(db_id, src_tblspcoid);
+	DropDatabaseDirectory(db_id, src_tblspcoid);
 
 	SIMPLE_FAULT_INJECTOR(InsideMoveDbTransaction);
 }
