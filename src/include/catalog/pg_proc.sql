@@ -24,6 +24,8 @@
 
  CREATE FUNCTION pg_get_partition_template_def(oid, bool, bool) RETURNS text LANGUAGE internal STABLE STRICT AS 'pg_get_partition_template_def' WITH (OID=5037, DESCRIPTION="ALTER statement to recreate subpartition templates for a give relation");
 
+ CREATE FUNCTION gp_tablespace_version_directory_name() RETURNS text LANGUAGE internal STABLE STRICT AS 'gp_tablespace_version_directory_name' WITH (OID=5052, DESCRIPTION="Get tablespace version directory name");
+
  CREATE FUNCTION numeric_dec("numeric") RETURNS "numeric" LANGUAGE internal IMMUTABLE STRICT AS 'numeric_dec' WITH (OID=6997, DESCRIPTION="increment by one");
 
 

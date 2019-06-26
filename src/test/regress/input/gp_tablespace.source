@@ -35,11 +35,6 @@ BEGIN
 END;
 $$ language plpgsql;
 
-CREATE OR REPLACE FUNCTION get_tablespace_version_directory_name()
-	RETURNS TEXT
-	AS '@abs_builddir@/regress.so', 'get_tablespace_version_directory_name'
-    LANGUAGE C;
-
 -- create tablespaces we can use
 CREATE TABLESPACE testspace LOCATION '@testtablespace@';
 CREATE TABLESPACE ul_testspace LOCATION '@testtablespace@_unlogged';
@@ -58,7 +53,7 @@ FROM gp_tablespace_location((SELECT oid FROM pg_tablespace WHERE spcname='ul_tes
 
 -- Test that test tablespaces have the catalog directory directly under their
 -- symlink
-SELECT pg_ls_dir('./pg_tblspc/' || oid) = get_tablespace_version_directory_name()
+SELECT pg_ls_dir('./pg_tblspc/' || oid) = gp_tablespace_version_directory_name()
          AS has_version_dir
 FROM pg_tablespace WHERE spcname = 'testspace';
 
@@ -178,14 +173,14 @@ SELECT * FROM
     FROM pg_tablespace
     WHERE spcname = 'testspace_existing_version_dir'
   ) a
-WHERE a.versiondirs != get_tablespace_version_directory_name();
+WHERE a.versiondirs != gp_tablespace_version_directory_name();
 
 SELECT count(*) FROM
   (SELECT pg_ls_dir('pg_tblspc/' || oid) AS versiondirs
     FROM pg_tablespace
     WHERE spcname = 'testspace_existing_version_dir'
   ) a
-WHERE a.versiondirs = get_tablespace_version_directory_name();
+WHERE a.versiondirs = gp_tablespace_version_directory_name();
 
 -- Do not drop the dbid directory, nor the existing version directory if you
 -- drop this tablespace
