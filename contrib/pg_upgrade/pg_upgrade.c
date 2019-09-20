@@ -508,6 +508,8 @@ prepare_new_databases(void)
 	 */
 	install_support_functions_in_new_db("template1");
 
+	system("cp pg_upgrade_dump_globals.sql pg_upgrade_dump_globals_bup.sql");
+	system("mkdir -p /tmp/fsmaster/GP6/16385");
 	/*
 	 * We have to create the databases first so we can install support
 	 * functions in all the other databases.  Ideally we could create the
