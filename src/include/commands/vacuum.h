@@ -150,6 +150,21 @@ typedef struct VacAttrStats
 #define WIDTH_THRESHOLD  1024
 
 /*
+ * GPDB: Auxiliary relations are those that are vacuumed during the vacuum of a
+ * base relation. For eg, if we are to vacuum the following base table:
+ * heap_t(i int, j text)
+ * The auxiliary relation would be pg_toast.pg_toast_<reltoastrelid_of_heap_t>
+ */
+#define IS_AUX_REL_FOR_VACUUM(vacrel) \
+			( \
+				((vacrel)->schemaname != NULL) && \
+				( \
+					strcmp((vacrel)->schemaname, "pg_toast") == 0 || \
+					strcmp((vacrel)->schemaname, "pg_aoseg") == 0 || \
+					strcmp((vacrel)->schemaname, "pg_aocsseg") == 0 \
+				) \
+			)
+/*
  * VPgClassStats is used to hold the stats information that are stored in
  * pg_class. It is sent from QE to QD in a special libpq message , when a
  * QE runs VACUUM on a table.

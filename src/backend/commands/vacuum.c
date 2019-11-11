@@ -1107,8 +1107,15 @@ get_rel_oids(Oid relid, const RangeVar *vacrel,
 {
 	List	   *oid_list = NIL;
 	MemoryContext oldcontext;
+	Oid			nspid;
+	HeapTuple	tuple;
+	Form_pg_namespace pg_namespace_tuple;
+	Oid			save_userid;
+	int			save_sec_context;
 
 	Assert(stmttype == VACOPT_VACUUM || stmttype == VACOPT_ANALYZE);
+
+	GetUserIdAndSecContext(&save_userid, &save_sec_context);
 
 	/* OID supplied by VACUUM's caller? */
 	if (OidIsValid(relid))
@@ -1119,6 +1126,28 @@ get_rel_oids(Oid relid, const RangeVar *vacrel,
 	}
 	else if (vacrel)
 	{
+		/*
+		 * GPDB: If we are here as a result of a dispatch of a vacuum statement
+		 * for an auxiliary relation (there are separate dispatches for each
+		 * auxiliary relation while vacuuming a base relation), elevate to the
+		 * access level required for resolving the auxiliary table's schema.
+		 * Note: The schema access check is performed as a part of the call to
+		 * RangeVarGetRelid (buried in the call to LookupExplicitNamespace).
+		 */
+		if (IS_AUX_REL_FOR_VACUUM(vacrel))
+		{
+			Assert(Gp_role == GP_ROLE_EXECUTE);
+			nspid = get_namespace_oid(vacrel->schemaname, false);
+			tuple = SearchSysCache1(NAMESPACEOID, ObjectIdGetDatum(nspid));
+			if (!HeapTupleIsValid(tuple))
+				elog(ERROR, "cache lookup failed for namespace %u", nspid);
+
+			pg_namespace_tuple = (Form_pg_namespace) GETSTRUCT(tuple);
+			SetUserIdAndSecContext(pg_namespace_tuple->nspowner,
+								   save_sec_context | SECURITY_RESTRICTED_OPERATION);
+			ReleaseSysCache(tuple);
+		}
+
 		if (stmttype == VACOPT_VACUUM)
 		{
 			/* Process a specific relation */
@@ -1135,6 +1164,12 @@ get_rel_oids(Oid relid, const RangeVar *vacrel,
 			 * and then.
 			 */
 			relid = RangeVarGetRelid(vacrel, NoLock, false);
+
+			/*
+			 * GPDB: Reset the access level once the schema resolution is done.
+			 */
+			if (IS_AUX_REL_FOR_VACUUM(vacrel))
+				SetUserIdAndSecContext(save_userid, save_sec_context);
 
 			if (rel_is_partitioned(relid))
 			{
@@ -1165,6 +1200,13 @@ get_rel_oids(Oid relid, const RangeVar *vacrel,
 			Oid relationOid = InvalidOid;
 
 			relationOid = RangeVarGetRelid(vacrel, NoLock, false);
+
+			/*
+			 * GPDB: Reset the access level once the schema resolution is done.
+			 */
+			if (IS_AUX_REL_FOR_VACUUM(vacrel))
+				SetUserIdAndSecContext(save_userid, save_sec_context);
+
 			PartStatus ps = rel_part_status(relationOid);
 
 			if (ps != PART_STATUS_ROOT && (options & VACOPT_ROOTONLY))
