@@ -7737,26 +7737,35 @@ DispatchSetPGVariable(const char *name, List *args, bool is_local)
 
 		foreach(l, args)
 		{
-			A_Const    *arg = (A_Const *) lfirst(l);
+			Node	   *arg = (Node *) lfirst(l);
 			char	   *val;
+			A_Const	   *con;
 
 			if (l != list_head(args))
 				appendStringInfo(&buffer, ", ");
 
+			if (IsA(arg, TypeCast))
+			{
+				TypeCast   *tc = (TypeCast *) arg;
+
+				arg = tc->arg;
+			}
+
 			if (!IsA(arg, A_Const))
 				elog(ERROR, "unrecognized node type: %d", (int) nodeTag(arg));
+			con = (A_Const *) arg;
 
-			switch (nodeTag(&arg->val))
+			switch (nodeTag(&con->val))
 			{
 				case T_Integer:
-					appendStringInfo(&buffer, "%ld", intVal(&arg->val));
+					appendStringInfo(&buffer, "%ld", intVal(&con->val));
 					break;
 				case T_Float:
 					/* represented as a string, so just copy it */
-					appendStringInfoString(&buffer, strVal(&arg->val));
+					appendStringInfoString(&buffer, strVal(&con->val));
 					break;
 				case T_String:
-					val = strVal(&arg->val);
+					val = strVal(&con->val);
 
 					/*
 					 * Plain string literal or identifier. Quote it.
@@ -7771,7 +7780,7 @@ DispatchSetPGVariable(const char *name, List *args, bool is_local)
 					break;
 				default:
 					elog(ERROR, "unrecognized node type: %d",
-						 (int) nodeTag(&arg->val));
+						 (int) nodeTag(&con->val));
 					break;
 			}
 		}
