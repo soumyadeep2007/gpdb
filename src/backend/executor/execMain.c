@@ -5025,12 +5025,7 @@ CloseIntoRel(QueryDesc *queryDesc)
 					MirroredBufferPool_CopyToMirror(
 							&estate->es_into_relation_bulkloadinfo->relFileNode,
 							estate->es_into_relation_descriptor->rd_rel->relname.data,
-							&estate->es_into_relation_bulkloadinfo->persistentTid,
-							estate->es_into_relation_bulkloadinfo->persistentSerialNum,
-							estate->es_into_relation_bulkloadinfo->mirrorDataLossTrackingState,
-							estate->es_into_relation_bulkloadinfo->mirrorDataLossTrackingSessionNum,
-							numOfBlocks,
-							&mirrorDataLossOccurred);
+
 				}
 			}
 			else
