@@ -142,6 +142,9 @@ static void vacuumStatement_Relation(Oid relid, List *relations,
 									 AOVacuumPhaseConfig *ao_vacuum_phase_config);
 
 static void
+vac_update_relstats_from_list(List *updated_stats);
+
+static void
 vacuum_rel_ao_phase(Oid relid, RangeVar *relation, int options, VacuumParams *params,
 					bool skip_twophase, AOVacuumPhaseConfig *ao_vacuum_phase_config,
 					Relation onerel, LOCKMODE lmode,
@@ -836,6 +839,35 @@ vacuumStatement_Relation(Oid relid, List *relations, BufferAccessStrategy bstrat
 		relation = makeRangeVar(nspname, relname, -1);
 	}
 	MemoryContextSwitchTo(oldcontext);
+	
+	if (Gp_role == GP_ROLE_DISPATCH)
+	{
+		VacuumStatsContext stats_context;
+		Oid			save_userid;
+		int			save_sec_context;
+
+		stats_context.updated_stats = NIL;
+		/*
+		 * Revert back to original userid before dispatching vacuum to QEs.
+		 * Dispatcher includes CurrentUserId in the serialized dispatch
+		 * command (see buildGpQueryString()).  QEs assume this userid
+		 * before starting to execute the dispatched command.  If the
+		 * original userid has superuser privileges and owner of the table
+		 * being vacuumed does not, and if the command is dispatched with
+		 * owner's userid, it may lead to spurious permission denied error
+		 * on QE even when a super user is running the vacuum.
+		 */
+		GetUserIdAndSecContext(&save_userid, &save_sec_context);
+		SetUserIdAndSecContext(
+			save_userid,
+			save_sec_context | SECURITY_RESTRICTED_OPERATION);
+		if (RelationIsHeap(onerel) && (options & VACOPT_FULL))
+			dispatchVacuum(options, relation, skip_twophase, NULL, &stats_context);
+		else
+			dispatchVacuum(options, relation, skip_twophase, ao_vacuum_phase_config, &stats_context);
+
+		vac_update_relstats_from_list(stats_context.updated_stats);
+	}
 
 	if (RelationIsHeap(onerel) || Gp_role == GP_ROLE_EXECUTE)
 	{
@@ -2447,6 +2479,9 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params,
 			LockRelation(onerel, ShareLock);
 	}
 
+	/* Restore userid and security context */
+	SetUserIdAndSecContext(save_userid, save_sec_context);
+
 	/*
 	 * Do the actual work --- either FULL or "lazy" vacuum
 	 *
@@ -2468,52 +2503,14 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params,
 		cluster_rel(relid, InvalidOid, false,
 					(options & VACOPT_VERBOSE) != 0,
 					true /* printError */);
-
-		if (Gp_role == GP_ROLE_DISPATCH)
-		{
-			VacuumStatsContext stats_context;
-
-			stats_context.updated_stats = NIL;
-			/*
-			 * Revert back to original userid before dispatching vacuum to QEs.
-			 * Dispatcher includes CurrentUserId in the serialized dispatch
-			 * command (see buildGpQueryString()).  QEs assume this userid
-			 * before starting to execute the dispatched command.  If the
-			 * original userid has superuser privileges and owner of the table
-			 * being vacuumed does not, and if the command is dispatched with
-			 * owner's userid, it may lead to spurious permission denied error
-			 * on QE even when a super user is running the vacuum.
-			 */
-			SetUserIdAndSecContext(
-								   save_userid,
-								   save_sec_context | SECURITY_RESTRICTED_OPERATION);
-			dispatchVacuum(options, relation, skip_twophase, NULL, &stats_context);
-
-			vac_update_relstats_from_list(stats_context.updated_stats);
-		}
 	}
 	else
 	{
 		lazy_vacuum_rel(onerel, options, params, vac_strategy, ao_vacuum_phase_config);
-
-		if (Gp_role == GP_ROLE_DISPATCH)
-		{
-			VacuumStatsContext stats_context;
-
-			stats_context.updated_stats = NIL;
-			SetUserIdAndSecContext(
-								   save_userid,
-								   save_sec_context | SECURITY_RESTRICTED_OPERATION);
-			dispatchVacuum(options, relation, skip_twophase, ao_vacuum_phase_config, &stats_context);
-			vac_update_relstats_from_list(stats_context.updated_stats);
-		}
 	}
 
 	/* Roll back any GUC changes executed by index functions */
 	AtEOXact_GUC(false, save_nestlevel);
-
-	/* Restore userid and security context */
-	SetUserIdAndSecContext(save_userid, save_sec_context);
 
 	/*
 	 * Update ao master tupcount the hard way after the compaction and
