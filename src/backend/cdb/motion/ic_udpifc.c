@@ -1992,7 +1992,7 @@ MlPutRxBufferIFC(ChunkTransportState *transportStates, int motNodeID, int route)
 	MotionConn *conn = NULL;
 	AckSendParam param;
 
-	getChunkTransportState(transportStates, motNodeID, &pEntry);
+	pEntry = getChunkTransportState(transportStates, motNodeID);
 
 	conn = pEntry->conns + route;
 
@@ -3039,12 +3039,15 @@ SetupUDPIFCInterconnect_Internal(SliceTable *sliceTable)
 
 	Assert(gp_interconnect_id > 0);
 
-	interconnect_context = palloc0(sizeof(ChunkTransportState));
+	interconnect_context = palloc0(sizeof(ChunkTransportStateDummy));
+
+	interconnect_context->GetChunkTransportStateEntry = GetChunkTransportStateEntryDummy;
 
 	/* initialize state variables */
 	Assert(interconnect_context->size == 0);
-	interconnect_context->size = CTS_INITIAL_SIZE;
-	interconnect_context->states = palloc0(CTS_INITIAL_SIZE * sizeof(ChunkTransportStateEntry));
+	interconnect_context->size = sliceTable->numSlices;
+	((ChunkTransportStateDummy *) interconnect_context)->states =
+		palloc0(sliceTable->numSlices * sizeof(ChunkTransportStateEntry));
 
 	interconnect_context->networkTimeoutIsLogged = false;
 	interconnect_context->teardownActive = false;
@@ -3328,10 +3331,10 @@ static bool
 chunkTransportStateEntryInitialized(ChunkTransportState *transportStates,
 									int16 motNodeID)
 {
-	if (motNodeID > transportStates->size || !transportStates->states[motNodeID - 1].valid)
-		return false;
-
-	return true;
+	ChunkTransportStateEntry *entry;
+	Assert(motNodeID <= transportStates->size);
+	entry = GetChunkTransportStateEntryDummy(transportStates, motNodeID);
+	return entry->valid;
 }
 
 /*
@@ -3367,6 +3370,7 @@ TeardownUDPIFCInterconnect_Internal(ChunkTransportState *transportStates,
 									bool hasErrors)
 {
 	ChunkTransportStateEntry *pEntry = NULL;
+	ChunkTransportStateEntry *states;
 	int			i;
 	ExecSlice  *mySlice;
 	MotionConn *conn;
@@ -3387,7 +3391,8 @@ TeardownUDPIFCInterconnect_Internal(ChunkTransportState *transportStates,
 		return;
 	}
 
-	if (!transportStates->states)
+	states = ((ChunkTransportStateDummy *) transportStates)->states;
+	if (!states)
 	{
 		elog(LOG, "TeardownUDPIFCInterconnect: missing states.");
 		return;
@@ -3650,11 +3655,8 @@ TeardownUDPIFCInterconnect_Internal(ChunkTransportState *transportStates,
 
 	if (transportStates != NULL)
 	{
-		if (transportStates->states != NULL)
-		{
-			pfree(transportStates->states);
-			transportStates->states = NULL;
-		}
+		if (states != NULL)
+			pfree(states);
 		pfree(transportStates);
 	}
 
@@ -3876,7 +3878,7 @@ RecvTupleChunkFromAnyUDPIFC_Internal(ChunkTransportState *transportStates,
 		elog(FATAL, "RecvTupleChunkFromAnyUDPIFC: interconnect context not active!");
 	}
 
-	getChunkTransportState(transportStates, motNodeID, &pEntry);
+	pEntry = getChunkTransportState(transportStates, motNodeID);
 
 	index = pEntry->scanStart;
 
@@ -3994,7 +3996,7 @@ RecvTupleChunkFromUDPIFC_Internal(ChunkTransportState *transportStates,
 	elog(DEBUG5, "RecvTupleChunkFromUDPIFC(motNodID=%d, srcRoute=%d)", motNodeID, srcRoute);
 #endif
 
-	getChunkTransportState(transportStates, motNodeID, &pEntry);
+	pEntry = getChunkTransportState(transportStates, motNodeID);
 	conn = pEntry->conns + srcRoute;
 
 #ifdef AMS_VERBOSE_LOGGING
@@ -5531,7 +5533,7 @@ SendEosUDPIFC(ChunkTransportState *transportStates,
 	/* check em' */
 	ML_CHECK_FOR_INTERRUPTS(transportStates->teardownActive);
 
-	getChunkTransportState(transportStates, motNodeID, &pEntry);
+	pEntry = getChunkTransportState(transportStates, motNodeID);
 
 	if (gp_log_interconnect >= GPVARS_VERBOSITY_DEBUG)
 		elog(DEBUG1, "Interconnect seg%d slice%d sending end-of-stream to slice%d",
@@ -5647,7 +5649,7 @@ doSendStopMessageUDPIFC(ChunkTransportState *transportStates, int16 motNodeID)
 	if (!transportStates->activated)
 		return;
 
-	getChunkTransportState(transportStates, motNodeID, &pEntry);
+	pEntry = getChunkTransportState(transportStates, motNodeID);
 	Assert(pEntry);
 
 	/*

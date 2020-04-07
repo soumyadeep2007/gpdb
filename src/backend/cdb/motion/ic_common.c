@@ -299,7 +299,7 @@ SendTupleChunkToAMS(MotionLayerState *mlStates,
 		 transportStates, transportStates->size, motNodeID, targetRoute);
 #endif
 
-	getChunkTransportState(transportStates, motNodeID, &pEntry);
+	pEntry = getChunkTransportState(transportStates, motNodeID);
 
 	/*
 	 * tcItem can actually be a chain of tcItems.  we need to send out all of
@@ -382,7 +382,7 @@ getTransportDirectBuffer(ChunkTransportState *transportStates,
 
 	do
 	{
-		getChunkTransportState(transportStates, motNodeID, &pEntry);
+		pEntry = getChunkTransportState(transportStates, motNodeID);
 
 		/* handle pt-to-pt message. Primary */
 		conn = pEntry->conns + targetRoute;
@@ -436,7 +436,7 @@ putTransportDirectBuffer(ChunkTransportState *transportStates,
 		elog(FATAL, "putTransportDirectBuffer: can't direct-transport to broadcast");
 	}
 
-	getChunkTransportState(transportStates, motNodeID, &pEntry);
+	pEntry = getChunkTransportState(transportStates, motNodeID);
 
 	/* handle pt-to-pt message. Primary */
 	conn = pEntry->conns + targetRoute;
@@ -472,7 +472,7 @@ DeregisterReadInterest(ChunkTransportState *transportStates,
 	if (!transportStates->activated)
 		return;
 
-	getChunkTransportState(transportStates, motNodeID, &pEntry);
+	pEntry = getChunkTransportState(transportStates, motNodeID);
 	conn = pEntry->conns + srcRoute;
 
 	if (gp_log_interconnect >= GPVARS_VERBOSITY_DEBUG)
@@ -601,19 +601,9 @@ createChunkTransportState(ChunkTransportState *transportStates,
 	Assert(sendSlice->sliceIndex > 0);
 
 	motNodeID = sendSlice->sliceIndex;
-	if (motNodeID > transportStates->size)
-	{
-		/* increase size of our table */
-		ChunkTransportStateEntry *newTable;
+	Assert(motNodeID <= transportStates->size);
 
-		newTable = repalloc(transportStates->states, motNodeID * sizeof(ChunkTransportStateEntry));
-		transportStates->states = newTable;
-		/* zero-out the new piece at the end */
-		MemSet(&transportStates->states[transportStates->size], 0, (motNodeID - transportStates->size) * sizeof(ChunkTransportStateEntry));
-		transportStates->size = motNodeID;
-	}
-
-	pEntry = &transportStates->states[motNodeID - 1];
+	pEntry = transportStates->GetChunkTransportStateEntry(transportStates, motNodeID);
 
 	if (pEntry->valid)
 	{
@@ -655,7 +645,6 @@ createChunkTransportState(ChunkTransportState *transportStates,
 
 	return pEntry;
 }
-
 /* Function removeChunkTransportState() is used to remove a ChunkTransportState struct from
  * the hashtab hashtable.
  *
@@ -673,29 +662,8 @@ ChunkTransportStateEntry *
 removeChunkTransportState(ChunkTransportState *transportStates,
 						  int16 motNodeID)
 {
-	ChunkTransportStateEntry *pEntry = NULL;
-
-	if (motNodeID > transportStates->size)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
-				 errmsg("interconnect error: Unexpected Motion Node Id: %d",
-						motNodeID),
-				 errdetail("During remove. (size %d)", transportStates->size)));
-	}
-	else if (!transportStates->states[motNodeID - 1].valid)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
-				 errmsg("interconnect error: Unexpected Motion Node Id: %d",
-						motNodeID),
-				 errdetail("During remove. State not valid")));
-	}
-	else
-	{
-		transportStates->states[motNodeID - 1].valid = false;
-		pEntry = &transportStates->states[motNodeID - 1];
-	}
+	ChunkTransportStateEntry *pEntry = getChunkTransportState(transportStates, motNodeID);
+	pEntry->valid = false;
 
 	MPP_FD_ZERO(&pEntry->readSet);
 
@@ -833,6 +801,66 @@ interconnect_abort_callback(ResourceReleasePhase phase,
 
 			cleanup_interconnect_handle(curr);
 		}
+	}
+}
+ChunkTransportStateEntry *
+GetChunkTransportStateEntryDummy(ChunkTransportState *transportState,
+								 int motNodeID)
+{
+	ChunkTransportStateDummy *dummy = (ChunkTransportStateDummy *) transportState;
+	Assert(transportState != NULL);
+	if (motNodeID > 0 && motNodeID <= transportState->size)
+		return &dummy->states[motNodeID - 1];
+	else
+		ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
+			errmsg("Interconnect Error: Unexpected Motion Node Id: %d (size %d). This means"
+				   " a motion node that wasn't setup is requesting interconnect"
+				   " resources.", motNodeID, transportState->size)));
+}
+void
+initChunkTransportStateEntry(ChunkTransportStateEntry *entry,
+							 int motNodeID,
+							 ExecSlice *sendSlice,
+							 ExecSlice *recvSlice,
+							 int numConns)
+{
+	if (entry->valid)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
+					errmsg("interconnect error: A HTAB entry for motion node %d already exists",
+						   motNodeID),
+					errdetail("conns %p numConns %d first sock %d",
+							  entry->conns, entry->numConns,
+							  entry->conns[0].sockfd)));
+	}
+
+	entry->valid = true;
+
+	entry->motNodeId = motNodeID;
+	entry->numConns = numConns;
+	entry->scanStart = 0;
+	entry->sendSlice = sendSlice;
+	entry->recvSlice = recvSlice;
+
+	// TODO: probably should do this elsewhere
+	entry->conns = palloc0(entry->numConns * sizeof(entry->conns[0]));
+
+	for (int i = 0; i < entry->numConns; i++)
+	{
+		MotionConn *conn = &entry->conns[i];
+
+		/* Initialize MotionConn entry. */
+		conn->state = mcsNull;
+		conn->sockfd = -1;
+		conn->msgSize = 0;
+		conn->tupleCount = 0;
+		conn->stillActive = false;
+		conn->stopRequested = false;
+		conn->wakeup_ms = 0;
+		conn->cdbProc = NULL;
+		conn->sent_record_typmod = 0;
+		conn->remapper = NULL;
 	}
 }
 

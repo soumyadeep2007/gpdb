@@ -353,9 +353,6 @@ typedef struct ChunkTransportStateEntry
 
 }	ChunkTransportStateEntry;
 
-/* ChunkTransportState array initial size */
-#define CTS_INITIAL_SIZE (10)
-
 /*
  * This structure is used to keep track of partially completed tuples,
  * and tuples that have been completed but have not been consumed by
@@ -497,9 +494,7 @@ typedef struct MotionLayerState
 
 typedef struct ChunkTransportState
 {
-	/* array of per-motion-node chunk transport state */
 	int size;
-	ChunkTransportStateEntry *states;
 
 	/* keeps track of if we've "activated" connections via SetupInterconnect(). */
 	bool		activated;
@@ -525,7 +520,21 @@ typedef struct ChunkTransportState
 	TupleChunkListItem (*RecvTupleChunkFromAny)(struct ChunkTransportState *transportStates, int16 motNodeID, int16 *srcRoute);
 	void (*doSendStopMessage)(struct ChunkTransportState *transportStates, int16 motNodeID);
 	void (*SendEos)(struct ChunkTransportState *transportStates, int motNodeID, TupleChunkListItem tcItem);
+	ChunkTransportStateEntry *(*GetChunkTransportStateEntry) (struct ChunkTransportState *transportState, int motNodeID);
 } ChunkTransportState;
+
+extern void initChunkTransportStateEntry(ChunkTransportStateEntry *entry,
+							 int motNodeID,
+							 struct ExecSlice *sendSlice,
+							 struct ExecSlice *recvSlice,
+							 int numConns);
+
+typedef struct ChunkTransportStateDummy
+{
+	ChunkTransportState base;
+	ChunkTransportStateEntry *states; 
+	
+} ChunkTransportStateDummy;
 
 extern void dumpICBufferList(ICBufferList *list, const char *fname);
 extern void dumpUnackQueueRing(const char *fname);

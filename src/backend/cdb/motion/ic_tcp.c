@@ -988,7 +988,7 @@ readRegisterMessage(ChunkTransportState *transportStates,
 	 * Find state info for the specified Motion node.  The sender's slice
 	 * number equals the motion node id.
 	 */
-	getChunkTransportState(transportStates, msg.sendSliceIndex, &pEntry);
+	pEntry = getChunkTransportState(transportStates, msg.sendSliceIndex);
 	Assert(pEntry);
 
 	foreach_with_count(lc, pEntry->sendSlice->primaryProcesses, iconn)
@@ -1237,13 +1237,16 @@ SetupTCPInterconnect(EState *estate)
 	ChunkTransportState *interconnect_context;
 
 	SIMPLE_FAULT_INJECTOR("interconnect_setup_palloc");
-	interconnect_context = palloc0(sizeof(ChunkTransportState));
+	interconnect_context = palloc0(sizeof(ChunkTransportStateDummy));
+
+	interconnect_context->GetChunkTransportStateEntry = GetChunkTransportStateEntryDummy;
 
 	/* initialize state variables */
 	Assert(interconnect_context->size == 0);
 	interconnect_context->estate = estate;
-	interconnect_context->size = CTS_INITIAL_SIZE;
-	interconnect_context->states = palloc0(CTS_INITIAL_SIZE * sizeof(ChunkTransportStateEntry));
+	interconnect_context->size = sliceTable->numSlices;
+	((ChunkTransportStateDummy *) interconnect_context)->states =
+		palloc0(sliceTable->numSlices * sizeof(ChunkTransportStateEntry));
 
 	interconnect_context->teardownActive = false;
 	interconnect_context->activated = false;
@@ -1912,7 +1915,7 @@ TeardownTCPInterconnect(ChunkTransportState *transportStates, bool hasErrors)
 			elog(DEBUG3, "Interconnect seg%d slice%d closing connections to slice%d",
 				 GpIdentity.segindex, mySlice->sliceIndex, mySlice->parentIndex);
 
-		getChunkTransportState(transportStates, mySlice->sliceIndex, &pEntry);
+		pEntry = getChunkTransportState(transportStates, mySlice->sliceIndex);
 
 		for (i = 0; i < pEntry->numConns; i++)
 		{
@@ -1941,7 +1944,7 @@ TeardownTCPInterconnect(ChunkTransportState *transportStates, bool hasErrors)
 
 		aSlice = &transportStates->sliceTable->slices[childId];
 
-		getChunkTransportState(transportStates, aSlice->sliceIndex, &pEntry);
+		pEntry = getChunkTransportState(transportStates, aSlice->sliceIndex);
 
 		if (gp_log_interconnect >= GPVARS_VERBOSITY_DEBUG)
 			elog(DEBUG3, "Interconnect closing connections from slice%d",
@@ -1983,7 +1986,7 @@ TeardownTCPInterconnect(ChunkTransportState *transportStates, bool hasErrors)
 	if (mySlice->parentIndex != -1)
 	{
 		/* cleanup a Sending motion node. */
-		getChunkTransportState(transportStates, mySlice->sliceIndex, &pEntry);
+		pEntry = getChunkTransportState(transportStates, mySlice->sliceIndex);
 
 		/*
 		 * On a normal teardown routine, sender has sent an EOS packet and
@@ -2025,9 +2028,9 @@ TeardownTCPInterconnect(ChunkTransportState *transportStates, bool hasErrors)
 
 	transportStates->activated = false;
 	transportStates->sliceTable = NULL;
-
-	if (transportStates->states != NULL)
-		pfree(transportStates->states);
+	ChunkTransportStateEntry *states = ((ChunkTransportStateDummy *)transportStates)->states;
+	if (states != NULL)
+		pfree(states);
 	pfree(transportStates);
 
 	if (hasErrors)
@@ -2350,7 +2353,7 @@ doSendStopMessageTCP(ChunkTransportState *transportStates, int16 motNodeID)
 	char		m = 'S';
 	ssize_t		written;
 
-	getChunkTransportState(transportStates, motNodeID, &pEntry);
+	pEntry = getChunkTransportState(transportStates, motNodeID);
 	Assert(pEntry);
 
 	if (gp_log_interconnect >= GPVARS_VERBOSITY_DEBUG)
@@ -2409,7 +2412,7 @@ RecvTupleChunkFromTCP(ChunkTransportState *transportStates,
 	elog(DEBUG5, "RecvTupleChunkFrom(motNodID=%d, srcRoute=%d)", motNodeID, srcRoute);
 #endif
 
-	getChunkTransportState(transportStates, motNodeID, &pEntry);
+	pEntry = getChunkTransportState(transportStates, motNodeID);
 	conn = pEntry->conns + srcRoute;
 
 	return RecvTupleChunk(conn, transportStates);
@@ -2435,7 +2438,7 @@ RecvTupleChunkFromAnyTCP(ChunkTransportState *transportStates,
 	elog(DEBUG5, "RecvTupleChunkFromAny(motNodeId=%d)", motNodeID);
 #endif
 
-	getChunkTransportState(transportStates, motNodeID, &pEntry);
+	pEntry = getChunkTransportState(transportStates, motNodeID);
 
 	int			retry = 0;
 
@@ -2564,7 +2567,7 @@ SendEosTCP(ChunkTransportState *transportStates,
 	/* check em' */
 	ML_CHECK_FOR_INTERRUPTS(transportStates->teardownActive);
 
-	getChunkTransportState(transportStates, motNodeID, &pEntry);
+	pEntry = getChunkTransportState(transportStates, motNodeID);
 
 	if (gp_log_interconnect >= GPVARS_VERBOSITY_DEBUG)
 		elog(DEBUG3, "Interconnect seg%d slice%d sending end-of-stream to slice%d",
