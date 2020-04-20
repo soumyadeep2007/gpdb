@@ -202,6 +202,69 @@ static CdbPathLocus choose_one_window_locus(PlannerInfo *root, Path *path,
 											WindowClause *wc,
 											bool *need_redistribute_p);
 
+#ifdef USE_ASSERT_CHECKING
+typedef struct verify_plan_node_ids_context
+{
+	Bitmapset *plan_ids;
+	bool valid;
+} verify_plan_node_ids_context;
+
+static bool
+verify_plan_node_ids_walker(Node *node, verify_plan_node_ids_context *context)
+{
+	if (node == NULL)
+		return false;
+
+	if (IsA(node, SubPlan))
+		return false;
+
+	if (is_plan_node(node))
+	{
+		Plan *plan = (Plan *) node;
+
+		/* Encountered a duplicate plan node id. Stop walking */
+		if (context->plan_ids && bms_is_member(plan->plan_node_id, context->plan_ids))
+		{
+			context->valid = false;
+			return true;
+		}
+
+		context->plan_ids = bms_add_member(context->plan_ids, plan->plan_node_id);
+	}
+	return plan_tree_walker(node, verify_plan_node_ids_walker, context, false);
+}
+
+static void
+verify_plan_node_ids(PlannedStmt *plannedStmt)
+{
+	Plan *plan;
+	verify_plan_node_ids_context context;
+	ListCell *lc;
+
+	Assert(plannedStmt && plannedStmt->planTree);
+
+	plan = plannedStmt->planTree;
+	context.plan_ids = NULL;
+	context.valid = true;
+
+	/* Plan node ids must begin with the root node having id=0. */
+	//Assert(plan->plan_node_id == 0);
+
+	verify_plan_node_ids_walker((Node *) plan, &context);
+
+	foreach(lc, plannedStmt->subplans)
+	{
+		Plan	   *subplan = lfirst(lc);
+
+		Assert(subplan);
+
+		verify_plan_node_ids_walker((Node *) subplan, &context);
+	}
+
+	Assert(context.valid);
+}
+#endif
+
 /*****************************************************************************
  *
  *	   Query optimizer entry point
@@ -286,7 +349,12 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		}
 
 		if (result)
+		{
+#ifdef USE_ASSERT_CHECKING
+			verify_plan_node_ids(result);
+#endif
 			return result;
+		}
 	}
 
 	/*
@@ -662,6 +730,9 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 		elog(LOG, "Planner Time: %.3f ms", INSTR_TIME_GET_MILLISEC(endtime));
 	}
 
+#ifdef USE_ASSERT_CHECKING
+	verify_plan_node_ids(result);
+#endif
 	return result;
 }
 
