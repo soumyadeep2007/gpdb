@@ -326,9 +326,6 @@ typedef struct ChunkTransportStateEntry
 	 */
 	mpp_fd_set  readSet;
 
-	/* highest file descriptor in the readSet. */
-	int			highReadSock;
-
     int         scanStart;
 
 	/* slice table entries */
@@ -529,12 +526,6 @@ extern void initChunkTransportStateEntry(ChunkTransportStateEntry *entry,
 							 struct ExecSlice *recvSlice,
 							 int numConns);
 
-typedef struct ChunkTransportStateDummy
-{
-	ChunkTransportState base;
-	ChunkTransportStateEntry *states; 
-	
-} ChunkTransportStateDummy;
 
 extern void dumpICBufferList(ICBufferList *list, const char *fname);
 extern void dumpUnackQueueRing(const char *fname);

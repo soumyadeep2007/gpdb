@@ -49,6 +49,20 @@ typedef struct GpMonotonicTime
 	struct timeval endTime;
 } GpMonotonicTime;
 
+typedef struct ChunkTransportStateEntryTCP
+{
+	ChunkTransportStateEntry entry;
+	/* highest file descriptor in the readSet. */
+	int			highReadSock;
+} ChunkTransportStateEntryTCP;
+
+typedef struct ChunkTransportStateTCP
+{
+	ChunkTransportState base;
+	ChunkTransportStateEntryTCP *states;
+
+} ChunkTransportStateTCP;
+
 static void gp_set_monotonic_begin_time(GpMonotonicTime *time);
 static void gp_get_monotonic_time(GpMonotonicTime *time);
 static inline uint64 gp_get_elapsed_ms(GpMonotonicTime *time);
@@ -871,6 +885,7 @@ readRegisterMessage(ChunkTransportState *transportStates,
 	RegisterMessage msg;
 	MotionConn *newConn;
 	ChunkTransportStateEntry *pEntry = NULL;
+	ChunkTransportStateEntryTCP *pEntryTCP = NULL;
 	CdbProcess *cdbproc = NULL;
 	ListCell	*lc;
 
@@ -989,6 +1004,7 @@ readRegisterMessage(ChunkTransportState *transportStates,
 	 * number equals the motion node id.
 	 */
 	pEntry = getChunkTransportState(transportStates, msg.sendSliceIndex);
+	pEntryTCP = (ChunkTransportStateEntryTCP *) pEntry;
 	Assert(pEntry);
 
 	foreach_with_count(lc, pEntry->sendSlice->primaryProcesses, iconn)
@@ -1065,8 +1081,8 @@ readRegisterMessage(ChunkTransportState *transportStates,
 
 	MPP_FD_SET(newConn->sockfd, &pEntry->readSet);
 
-	if (newConn->sockfd > pEntry->highReadSock)
-		pEntry->highReadSock = newConn->sockfd;
+	if (newConn->sockfd > pEntryTCP->highReadSock)
+		pEntryTCP->highReadSock = newConn->sockfd;
 
 #ifdef AMS_VERBOSE_LOGGING
 	dumpEntryConnections(DEBUG4, pEntry);
@@ -1210,6 +1226,21 @@ acceptIncomingConnection(void)
 	return conn;
 }								/* acceptIncomingConnection */
 
+static ChunkTransportStateEntry *
+GetChunkTransportStateEntryTCP(ChunkTransportState *transportState,
+								 int motNodeID)
+{
+	ChunkTransportStateTCP *transportStateTCP = (ChunkTransportStateTCP *) transportState;
+	Assert(transportState != NULL);
+	if (motNodeID > 0 && motNodeID <= transportState->size)
+		return (ChunkTransportStateEntry *) &transportStateTCP->states[motNodeID - 1];
+	else
+		ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
+			errmsg("Interconnect Error: Unexpected Motion Node Id: %d (size %d). This means"
+				   " a motion node that wasn't setup is requesting interconnect"
+				   " resources.", motNodeID, transportState->size)));
+}
+
 /* See ml_ipc.h */
 void
 SetupTCPInterconnect(EState *estate)
@@ -1237,16 +1268,16 @@ SetupTCPInterconnect(EState *estate)
 	ChunkTransportState *interconnect_context;
 
 	SIMPLE_FAULT_INJECTOR("interconnect_setup_palloc");
-	interconnect_context = palloc0(sizeof(ChunkTransportStateDummy));
+	interconnect_context = palloc0(sizeof(ChunkTransportStateTCP));
 
-	interconnect_context->GetChunkTransportStateEntry = GetChunkTransportStateEntryDummy;
+	interconnect_context->GetChunkTransportStateEntry = GetChunkTransportStateEntryTCP;
 
 	/* initialize state variables */
 	Assert(interconnect_context->size == 0);
 	interconnect_context->estate = estate;
 	interconnect_context->size = sliceTable->numSlices;
-	((ChunkTransportStateDummy *) interconnect_context)->states =
-		palloc0(sliceTable->numSlices * sizeof(ChunkTransportStateEntry));
+	((ChunkTransportStateTCP *) interconnect_context)->states =
+		palloc0(sliceTable->numSlices * sizeof(ChunkTransportStateEntryTCP));
 
 	interconnect_context->teardownActive = false;
 	interconnect_context->activated = false;
@@ -2028,7 +2059,8 @@ TeardownTCPInterconnect(ChunkTransportState *transportStates, bool hasErrors)
 
 	transportStates->activated = false;
 	transportStates->sliceTable = NULL;
-	ChunkTransportStateEntry *states = ((ChunkTransportStateDummy *)transportStates)->states;
+	ChunkTransportStateEntry *states =
+								 (ChunkTransportStateEntry *) ((ChunkTransportStateTCP *) transportStates)->states;
 	if (states != NULL)
 		pfree(states);
 	pfree(transportStates);
@@ -2424,6 +2456,7 @@ RecvTupleChunkFromAnyTCP(ChunkTransportState *transportStates,
 						 int16 *srcRoute)
 {
 	ChunkTransportStateEntry *pEntry = NULL;
+	ChunkTransportStateEntryTCP *pEntryTCP = NULL;
 	MotionConn *conn;
 	TupleChunkListItem tcItem;
 	mpp_fd_set	rset;
@@ -2439,6 +2472,7 @@ RecvTupleChunkFromAnyTCP(ChunkTransportState *transportStates,
 #endif
 
 	pEntry = getChunkTransportState(transportStates, motNodeID);
+	pEntryTCP = (ChunkTransportStateEntryTCP *) pEntry;
 
 	int			retry = 0;
 
@@ -2483,7 +2517,7 @@ RecvTupleChunkFromAnyTCP(ChunkTransportState *transportStates,
 		if (skipSelect)
 			break;
 
-		n = select(pEntry->highReadSock + 1, (fd_set *) &rset, NULL, NULL, &timeout);
+		n = select(pEntryTCP->highReadSock + 1, (fd_set *) &rset, NULL, NULL, &timeout);
 		if (n < 0)
 		{
 			if (errno == EINTR)

@@ -179,6 +179,17 @@ struct ConnHashTable
 	int			size;
 };
 
+typedef struct ChunkTransportStateEntryUDP
+{
+	ChunkTransportStateEntry entry;
+} ChunkTransportStateEntryUDP;
+
+typedef struct ChunkTransportStateUDP
+{
+	ChunkTransportState base;
+	ChunkTransportStateEntryUDP *states;
+} ChunkTransportStateUDP;
+
 #define CONN_HASH_VALUE(icpkt) ((uint32)((((icpkt)->srcPid ^ (icpkt)->dstPid)) + (icpkt)->dstContentId))
 #define CONN_HASH_MATCH(a, b) (((a)->motNodeId == (b)->motNodeId && \
 								(a)->dstContentId == (b)->dstContentId && \
@@ -3012,6 +3023,21 @@ handleCachedPackets(void)
 	}
 }
 
+static ChunkTransportStateEntry *
+GetChunkTransportStateEntryUDP(ChunkTransportState *transportState,
+								 int motNodeID)
+{
+	ChunkTransportStateUDP *transportStateUDP = (ChunkTransportStateUDP *) transportState;
+	Assert(transportState != NULL);
+	if (motNodeID > 0 && motNodeID <= transportState->size)
+		return (ChunkTransportStateEntry *) &transportStateUDP->states[motNodeID - 1];
+	else
+		ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
+			errmsg("Interconnect Error: Unexpected Motion Node Id: %d (size %d). This means"
+				   " a motion node that wasn't setup is requesting interconnect"
+				   " resources.", motNodeID, transportState->size)));
+}
+
 /*
  * SetupUDPIFCInterconnect_Internal
  * 		Internal function for setting up UDP interconnect.
@@ -3039,15 +3065,15 @@ SetupUDPIFCInterconnect_Internal(SliceTable *sliceTable)
 
 	Assert(gp_interconnect_id > 0);
 
-	interconnect_context = palloc0(sizeof(ChunkTransportStateDummy));
+	interconnect_context = palloc0(sizeof(ChunkTransportStateUDP));
 
-	interconnect_context->GetChunkTransportStateEntry = GetChunkTransportStateEntryDummy;
+	interconnect_context->GetChunkTransportStateEntry = GetChunkTransportStateEntryUDP;
 
 	/* initialize state variables */
 	Assert(interconnect_context->size == 0);
 	interconnect_context->size = sliceTable->numSlices;
-	((ChunkTransportStateDummy *) interconnect_context)->states =
-		palloc0(sliceTable->numSlices * sizeof(ChunkTransportStateEntry));
+	((ChunkTransportStateUDP *) interconnect_context)->states =
+		palloc0(sliceTable->numSlices * sizeof(ChunkTransportStateEntryUDP));
 
 	interconnect_context->networkTimeoutIsLogged = false;
 	interconnect_context->teardownActive = false;
@@ -3333,7 +3359,7 @@ chunkTransportStateEntryInitialized(ChunkTransportState *transportStates,
 {
 	ChunkTransportStateEntry *entry;
 	Assert(motNodeID <= transportStates->size);
-	entry = GetChunkTransportStateEntryDummy(transportStates, motNodeID);
+	entry = GetChunkTransportStateEntryUDP(transportStates, motNodeID);
 	return entry->valid;
 }
 
@@ -3370,7 +3396,7 @@ TeardownUDPIFCInterconnect_Internal(ChunkTransportState *transportStates,
 									bool hasErrors)
 {
 	ChunkTransportStateEntry *pEntry = NULL;
-	ChunkTransportStateEntry *states;
+	ChunkTransportStateEntryUDP *states;
 	int			i;
 	ExecSlice  *mySlice;
 	MotionConn *conn;
@@ -3391,7 +3417,7 @@ TeardownUDPIFCInterconnect_Internal(ChunkTransportState *transportStates,
 		return;
 	}
 
-	states = ((ChunkTransportStateDummy *) transportStates)->states;
+	states = ((ChunkTransportStateUDP *) transportStates)->states;
 	if (!states)
 	{
 		elog(LOG, "TeardownUDPIFCInterconnect: missing states.");

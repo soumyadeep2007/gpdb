@@ -803,20 +803,7 @@ interconnect_abort_callback(ResourceReleasePhase phase,
 		}
 	}
 }
-ChunkTransportStateEntry *
-GetChunkTransportStateEntryDummy(ChunkTransportState *transportState,
-								 int motNodeID)
-{
-	ChunkTransportStateDummy *dummy = (ChunkTransportStateDummy *) transportState;
-	Assert(transportState != NULL);
-	if (motNodeID > 0 && motNodeID <= transportState->size)
-		return &dummy->states[motNodeID - 1];
-	else
-		ereport(ERROR, (errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
-			errmsg("Interconnect Error: Unexpected Motion Node Id: %d (size %d). This means"
-				   " a motion node that wasn't setup is requesting interconnect"
-				   " resources.", motNodeID, transportState->size)));
-}
+
 void
 initChunkTransportStateEntry(ChunkTransportStateEntry *entry,
 							 int motNodeID,

@@ -313,6 +313,4 @@ extern uint32 getActiveMotionConns(void);
 
 extern char *format_sockaddr(struct sockaddr_storage *sa, char *buf, size_t len);
 
-extern ChunkTransportStateEntry *GetChunkTransportStateEntryDummy(ChunkTransportState *transportState, int motNodeID);
-
 #endif   /* ML_IPC_H */
