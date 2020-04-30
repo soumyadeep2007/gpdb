@@ -182,6 +182,9 @@ struct ConnHashTable
 typedef struct ChunkTransportStateEntryUDP
 {
 	ChunkTransportStateEntry entry;
+	int						 txfd;
+	int						 txfd_family;
+	unsigned short 			 txport;
 } ChunkTransportStateEntryUDP;
 
 typedef struct ChunkTransportStateUDP
@@ -2664,6 +2667,7 @@ startOutgoingUDPConnections(ChunkTransportState *transportStates,
 							int *pOutgoingCount)
 {
 	ChunkTransportStateEntry *pEntry;
+	ChunkTransportStateEntryUDP *pEntryUDP;
 	MotionConn *conn;
 	ListCell   *cell;
 	ExecSlice  *recvSlice;
@@ -2682,7 +2686,7 @@ startOutgoingUDPConnections(ChunkTransportState *transportStates,
 									   sendSlice,
 									   recvSlice,
 									   list_length(recvSlice->primaryProcesses));
-
+	pEntryUDP = (ChunkTransportStateEntryUDP *) pEntry;
 	Assert(pEntry && pEntry->valid);
 
 	/*
@@ -2729,9 +2733,9 @@ startOutgoingUDPConnections(ChunkTransportState *transportStates,
 		conn++;
 	}
 
-	pEntry->txfd = ICSenderSocket;
-	pEntry->txport = ICSenderPort;
-	pEntry->txfd_family = ICSenderFamily;
+	pEntryUDP->txfd = ICSenderSocket;
+	pEntryUDP->txport = ICSenderPort;
+	pEntryUDP->txfd_family = ICSenderFamily;
 
 	return pEntry;
 
@@ -2805,6 +2809,7 @@ void
 setupOutgoingUDPConnection(ChunkTransportState *transportStates, ChunkTransportStateEntry *pEntry, MotionConn *conn)
 {
 	CdbProcess *cdbProc = conn->cdbProc;
+	ChunkTransportStateEntryUDP *pEntryUDP = (ChunkTransportStateEntryUDP *) pEntry;
 
 	Assert(conn->state == mcsSetupOutgoingConnection);
 	Assert(conn->cdbProc);
@@ -2841,14 +2846,14 @@ setupOutgoingUDPConnection(ChunkTransportState *transportStates, ChunkTransportS
 			MemSet(&source_addr, 0, sizeof(source_addr));
 			source_addr_len = sizeof(source_addr);
 
-			if (getsockname(pEntry->txfd, (struct sockaddr *) &source_addr, &source_addr_len) == -1)
+			if (getsockname(pEntryUDP->txfd, (struct sockaddr *) &source_addr, &source_addr_len) == -1)
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_GP_INTERCONNECTION_ERROR),
 						 errmsg("interconnect Error: Could not get port from socket"),
 						 errdetail("%m")));
 			}
-			Assert(pEntry->txfd_family == source_addr.ss_family);
+			Assert(pEntryUDP->txfd_family == source_addr.ss_family);
 		}
 #endif
 
@@ -2856,7 +2861,7 @@ setupOutgoingUDPConnection(ChunkTransportState *transportStates, ChunkTransportS
 		 * If the socket was created with a different address family than the
 		 * place we are sending to, we might need to do something special.
 		 */
-		if (pEntry->txfd_family != conn->peer.ss_family)
+		if (pEntryUDP->txfd_family != conn->peer.ss_family)
 		{
 			/*
 			 * If the socket was created AF_INET6, but the address we want to
@@ -2865,7 +2870,7 @@ setupOutgoingUDPConnection(ChunkTransportState *transportStates, ChunkTransportS
 			 * handles this.  But on MAC OSX and Solaris, we need to convert
 			 * the IPv4 address to an V4-MAPPED address in AF_INET6 format.
 			 */
-			if (pEntry->txfd_family == AF_INET6)
+			if (pEntryUDP->txfd_family == AF_INET6)
 			{
 				struct sockaddr_storage temp;
 				const struct sockaddr_in *in = (const struct sockaddr_in *) &conn->peer;
@@ -4283,6 +4288,7 @@ handleAcks(ChunkTransportState *transportStates, ChunkTransportStateEntry *pEntr
 	bool		ret = false;
 	MotionConn *ackConn = NULL;
 	int			n;
+	ChunkTransportStateEntryUDP *pEntryUDP = (ChunkTransportStateEntryUDP *) pEntry;
 
 	struct sockaddr_storage peer;
 	socklen_t	peerlen;
@@ -4297,7 +4303,7 @@ handleAcks(ChunkTransportState *transportStates, ChunkTransportStateEntry *pEntr
 
 		/* ready to read on our socket ? */
 		peerlen = sizeof(peer);
-		n = recvfrom(pEntry->txfd, (char *) pkt, MIN_PACKET_SIZE, 0,
+		n = recvfrom(pEntryUDP->txfd, (char *) pkt, MIN_PACKET_SIZE, 0,
 					 (struct sockaddr *) &peer, &peerlen);
 
 		if (n < 0)
@@ -4569,6 +4575,7 @@ static void
 sendOnce(ChunkTransportState *transportStates, ChunkTransportStateEntry *pEntry, ICBuffer *buf, MotionConn *conn)
 {
 	int32		n;
+	ChunkTransportStateEntryUDP *pEntryUDP = (ChunkTransportStateEntryUDP *) pEntry;
 
 #ifdef USE_ASSERT_CHECKING
 	if (testmode_inject_fault(gp_udpic_dropxmit_percent))
@@ -4581,7 +4588,7 @@ sendOnce(ChunkTransportState *transportStates, ChunkTransportStateEntry *pEntry,
 #endif
 
 xmit_retry:
-	n = sendto(pEntry->txfd, buf->pkt, buf->pkt->len, 0,
+	n = sendto(pEntryUDP->txfd, buf->pkt, buf->pkt->len, 0,
 			   (struct sockaddr *) &conn->peer, conn->peer_len);
 	if (n < 0)
 	{
@@ -4640,6 +4647,7 @@ static void
 handleStopMsgs(ChunkTransportState *transportStates, ChunkTransportStateEntry *pEntry, int16 motionId)
 {
 	int			i = 0;
+	ChunkTransportStateEntryUDP *pEntryUDP = (ChunkTransportStateEntryUDP *) pEntry;
 
 #ifdef AMS_VERBOSE_LOGGING
 	elog(DEBUG3, "handleStopMsgs: node %d", motionId);
@@ -4704,7 +4712,7 @@ handleStopMsgs(ChunkTransportState *transportStates, ChunkTransportStateEntry *p
 
 		if (i == pEntry->numConns)
 		{
-			if (pollAcks(transportStates, pEntry->txfd, 0))
+			if (pollAcks(transportStates, pEntryUDP->txfd, 0))
 			{
 				if (handleAcks(transportStates, pEntry))
 				{
@@ -5206,6 +5214,7 @@ static void
 checkDeadlock(ChunkTransportStateEntry *pEntry, MotionConn *conn)
 {
 	uint64		deadlockCheckTime;
+	ChunkTransportStateEntryUDP *pEntryUDP = (ChunkTransportStateEntryUDP *) pEntry;
 
 	if (icBufferListLength(&conn->unackQueue) == 0 && conn->capacity == 0 && icBufferListLength(&conn->sndQueue) > 0)
 	{
@@ -5229,7 +5238,7 @@ checkDeadlock(ChunkTransportStateEntry *pEntry, MotionConn *conn)
 		if (((now - ic_control_info.lastDeadlockCheckTime) > deadlockCheckTime) &&
 			((now - conn->deadlockCheckBeginTime) > deadlockCheckTime))
 		{
-			sendStatusQueryMessage(conn, pEntry->txfd, conn->conn_info.seq - 1);
+			sendStatusQueryMessage(conn, pEntryUDP->txfd, conn->conn_info.seq - 1);
 			ic_control_info.lastDeadlockCheckTime = now;
 			ic_statistics.statusQueryMsgNum++;
 
@@ -5437,6 +5446,7 @@ SendChunkUDPIFC(ChunkTransportState *transportStates,
 	int			retry = 0;
 	bool		doCheckExpiration = false;
 	bool		gotStops = false;
+	ChunkTransportStateEntryUDP *pEntryUDP = (ChunkTransportStateEntryUDP *) pEntry;
 
 	Assert(conn->msgSize > 0);
 
@@ -5484,7 +5494,7 @@ SendChunkUDPIFC(ChunkTransportState *transportStates,
 	{
 		int			timeout = (doCheckExpiration ? 0 : computeTimeout(conn, retry));
 
-		if (pollAcks(transportStates, pEntry->txfd, timeout))
+		if (pollAcks(transportStates, pEntryUDP->txfd, timeout))
 		{
 			if (handleAcks(transportStates, pEntry))
 			{
@@ -5538,6 +5548,7 @@ SendEosUDPIFC(ChunkTransportState *transportStates,
 			  TupleChunkListItem tcItem)
 {
 	ChunkTransportStateEntry *pEntry = NULL;
+	ChunkTransportStateEntryUDP *pEntryUDP = NULL;
 	MotionConn *conn;
 	int			i = 0;
 	int			retry = 0;
@@ -5560,6 +5571,7 @@ SendEosUDPIFC(ChunkTransportState *transportStates,
 	ML_CHECK_FOR_INTERRUPTS(transportStates->teardownActive);
 
 	pEntry = getChunkTransportState(transportStates, motNodeID);
+	pEntryUDP = (ChunkTransportStateEntryUDP *) pEntry;
 
 	if (gp_log_interconnect >= GPVARS_VERBOSITY_DEBUG)
 		elog(DEBUG1, "Interconnect seg%d slice%d sending end-of-stream to slice%d",
@@ -5636,7 +5648,7 @@ SendEosUDPIFC(ChunkTransportState *transportStates,
 				{
 					timeout = computeTimeout(conn, retry);
 
-					if (pollAcks(transportStates, pEntry->txfd, timeout))
+					if (pollAcks(transportStates, pEntryUDP->txfd, timeout))
 						handleAcks(transportStates, pEntry);
 
 					checkExceptions(transportStates, pEntry, conn, retry++, timeout);

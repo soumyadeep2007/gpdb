@@ -332,11 +332,6 @@ typedef struct ChunkTransportStateEntry
 	struct ExecSlice *sendSlice;
 	struct ExecSlice *recvSlice;
 
-	/* setup info */
-	int			txfd;
-	int			txfd_family;
-	unsigned short txport;
-
 	bool		sendingEos;
 
 	/* Statistics info for this motion on the interconnect level */
