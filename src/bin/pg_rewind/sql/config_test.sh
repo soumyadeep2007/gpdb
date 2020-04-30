@@ -98,12 +98,12 @@ STANDBY_PG_CTL_OPTIONS="--gp_dbid=${STANDBY_DBID} -p ${PORT_STANDBY} $PG_CTL_COM
 MASTER_PG_CTL_STOP_MODE="fast"
 
 function wait_for_promotion {
-   retry=150
+   retry=180
    until [ $retry -le 0 ]
    do
       PGOPTIONS=${PGOPTIONS_UTILITY} ${1} -c "select 'promotion is done';" && return 0
       retry=$[$retry-1]
-      sleep 0.5
+      sleep 1
    done
    echo "error: timeout, promotion is not done."
    exit 1
@@ -118,12 +118,12 @@ function wait_until_master_is_promoted {
 }
 
 function wait_until_standby_streaming_state {
-   retry=150
+   retry=180
    until [ $retry -le 0 ]
    do
       PGOPTIONS=${PGOPTIONS_UTILITY} $STANDBY_PSQL -c "SELECT state FROM pg_stat_replication;" | grep 'streaming' > /dev/null && return 0
       retry=$[$retry-1]
-      sleep 0.5
+      sleep 1
    done
    echo "error: timeout, standby streaming is not done."
    exit 1
