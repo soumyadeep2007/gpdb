@@ -332,17 +332,6 @@ typedef struct ChunkTransportStateEntry
 	struct ExecSlice *sendSlice;
 	struct ExecSlice *recvSlice;
 
-	bool		sendingEos;
-
-	/* Statistics info for this motion on the interconnect level */
-	uint64 stat_total_ack_time;
-	uint64 stat_count_acks;
-	uint64 stat_max_ack_time;
-	uint64 stat_min_ack_time;
-	uint64 stat_count_resent;
-	uint64 stat_max_resent;
-	uint64 stat_count_dropped;
-
 }	ChunkTransportStateEntry;
 
 /*

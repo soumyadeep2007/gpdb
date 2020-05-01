@@ -182,9 +182,18 @@ struct ConnHashTable
 typedef struct ChunkTransportStateEntryUDP
 {
 	ChunkTransportStateEntry entry;
-	int						 txfd;
-	int						 txfd_family;
-	unsigned short 			 txport;
+	int				txfd;
+	int				txfd_family;
+	unsigned short 	txport;
+	bool			sendingEos;
+	/* Interconnect level statistics for the motion */
+	uint64 			stat_total_ack_time;
+	uint64 			stat_count_acks;
+	uint64 			stat_max_ack_time;
+	uint64 			stat_min_ack_time;
+	uint64 			stat_count_resent;
+	uint64 			stat_max_resent;
+	uint64 			stat_count_dropped;
 } ChunkTransportStateEntryUDP;
 
 typedef struct ChunkTransportStateUDP
@@ -4119,17 +4128,19 @@ markUDPConnInactiveIFC(MotionConn *conn)
 static void
 aggregateStatistics(ChunkTransportStateEntry *pEntry)
 {
+	ChunkTransportStateEntryUDP *pEntryUDP = (ChunkTransportStateEntryUDP *) pEntry;
 	/*
 	 * We first clear the stats, and then compute new stats by aggregating the
 	 * stats from each connection.
 	 */
-	pEntry->stat_total_ack_time = 0;
-	pEntry->stat_count_acks = 0;
-	pEntry->stat_max_ack_time = 0;
-	pEntry->stat_min_ack_time = ~((uint64) 0);
-	pEntry->stat_count_resent = 0;
-	pEntry->stat_max_resent = 0;
-	pEntry->stat_count_dropped = 0;
+
+	pEntryUDP->stat_total_ack_time = 0;
+	pEntryUDP->stat_count_acks = 0;
+	pEntryUDP->stat_max_ack_time = 0;
+	pEntryUDP->stat_min_ack_time = ~((uint64) 0);
+	pEntryUDP->stat_count_resent = 0;
+	pEntryUDP->stat_max_resent = 0;
+	pEntryUDP->stat_count_dropped = 0;
 
 	int			connNo;
 
@@ -4137,13 +4148,13 @@ aggregateStatistics(ChunkTransportStateEntry *pEntry)
 	{
 		MotionConn *conn = &pEntry->conns[connNo];
 
-		pEntry->stat_total_ack_time += conn->stat_total_ack_time;
-		pEntry->stat_count_acks += conn->stat_count_acks;
-		pEntry->stat_max_ack_time = Max(pEntry->stat_max_ack_time, conn->stat_max_ack_time);
-		pEntry->stat_min_ack_time = Min(pEntry->stat_min_ack_time, conn->stat_min_ack_time);
-		pEntry->stat_count_resent += conn->stat_count_resent;
-		pEntry->stat_max_resent = Max(pEntry->stat_max_resent, conn->stat_max_resent);
-		pEntry->stat_count_dropped += conn->stat_count_dropped;
+		pEntryUDP->stat_total_ack_time += conn->stat_total_ack_time;
+		pEntryUDP->stat_count_acks += conn->stat_count_acks;
+		pEntryUDP->stat_max_ack_time = Max(pEntryUDP->stat_max_ack_time, conn->stat_max_ack_time);
+		pEntryUDP->stat_min_ack_time = Min(pEntryUDP->stat_min_ack_time, conn->stat_min_ack_time);
+		pEntryUDP->stat_count_resent += conn->stat_count_resent;
+		pEntryUDP->stat_max_resent = Max(pEntryUDP->stat_max_resent, conn->stat_max_resent);
+		pEntryUDP->stat_count_dropped += conn->stat_count_dropped;
 	}
 }
 
@@ -5583,7 +5594,7 @@ SendEosUDPIFC(ChunkTransportState *transportStates,
 	 */
 	doBroadcast(transportStates, pEntry, tcItem, NULL);
 
-	pEntry->sendingEos = true;
+	pEntryUDP->sendingEos = true;
 
 	uint64		now = getCurrentTime();
 
@@ -5601,7 +5612,7 @@ SendEosUDPIFC(ChunkTransportState *transportStates,
 					 conn->conn_info.icId, conn->msgSize);
 
 			/* prepare this for transmit */
-			if (pEntry->sendingEos)
+			if (pEntryUDP->sendingEos)
 				conn->conn_info.flags |= UDPIC_FLAGS_EOS;
 
 			prepareXmit(conn);
