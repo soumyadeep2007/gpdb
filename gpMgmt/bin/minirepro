@@ -63,6 +63,7 @@ import os, sys, re, json, platform, subprocess
 import pgdb
 from optparse import OptionParser
 from datetime import datetime
+from gppylib.utils import formatInsertValuesList, E
 
 version = '1.13'
 PATH_PREFIX = '/tmp/'
@@ -76,9 +77,6 @@ class MRQuery(object):
         self.schemas = []
         self.funcids = []
         self.relids = []
-
-def E(query_str):
-    return pgdb.escape_string(query_str)
 
 def generate_timestamp():
     timestamp = datetime.now()
@@ -227,60 +225,13 @@ def dump_stats(cur, oid_str, f_out, inclHLL):
         '{2}DELETE FROM pg_statistic WHERE starelid={3} AND staattnum={4};\n' \
         'INSERT INTO pg_statistic VALUES (\n' \
         '{5});\n\n'
-    types = ['smallint',  # staattnum
-             'boolean',
-             'real',
-             'integer',
-             'real',
-             'smallint',
-             'smallint',
-             'smallint',
-             'smallint',
-             'smallint',
-             'oid',
-             'oid',
-             'oid',
-             'oid',
-             'oid',
-             'real[]',
-             'real[]',
-             'real[]',
-             'real[]',
-             'real[]'
-             ]
 
     cur.execute(query)
 
     for vals in result_iter(cur):
-        starelid = "'%s.%s'::regclass" % (E(vals[1]), E(vals[0]))
-        rowVals = ["\t%s" % (starelid)]
         schemaname = vals[1]
-        i = 0
-        hll = False
-
-        if vals[3][0] == '_':
-            rowTypes = types + [vals[3]] * 5
-        else:
-            rowTypes = types + [vals[3] + '[]'] * 5
-        for val, typ in zip(vals[5:], rowTypes):
-            i = i + 1
-            str_val = "'%s'" % val
-            if i == 10 and (val == 98 or val == 99):
-                if inclHLL == False:
-                    val = 0
-                hll = True
-
-            if val is None:
-                val = 'NULL'
-            elif isinstance(val, str) and val[0] == '{':
-                val = "E'%s'" % E(val)
-            if i == 25 and hll == True:
-                if inclHLL == True:
-                    rowVals.append('\t{0}::{1}'.format(str_val, 'bytea[]'))
-                else:
-                    rowVals.append('\t{0}'.format('NULL::int4[]'))
-            else:
-                rowVals.append('\t{0}::{1}'.format(val, typ))
+        starelid = "'%s.%s'::regclass" % (E(vals[1]), E(vals[0]))
+        rowVals = formatInsertValuesList(vals, starelid, inclHLL)
 
         # For non-catalog tables we don't need to delete stats first
         # stats need to be deleted only for catalog tables
