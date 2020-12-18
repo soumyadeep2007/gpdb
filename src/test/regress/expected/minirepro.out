@@ -333,3 +333,86 @@ from pg_statistic where starelid='pg_tablespace'::regclass;
          5 | f          |           1 |        0 |           0 |        0 |        0 |        0 |        0 |        0 |      0 |      0 |      0 |      0 |      0 |        0 |        0 |        0 |        0 |        0 |             |             |             |             |             |                        |            |            |            | 
 (5 rows)
 
+--------------------------------------------------------------------------------
+-- Scenario: User table with extended statistics
+--------------------------------------------------------------------------------
+create table minirepro_foo(i int, j int, k int);
+NOTICE:  Table doesn't have 'DISTRIBUTED BY' clause -- Using column named 'i' as the Greenplum Database data distribution key for this table.
+HINT:  The 'DISTRIBUTED BY' clause determines the distribution of data. Make sure column(s) chosen are the optimal data distribution key to minimize skew.
+-- inserts here
+create statistics foo_nd (ndistinct) on i, j from minirepro_foo;
+analyze minirepro_foo;
+-- Display extended statistics for minirepro_foo
+select
+    e.stxname,
+    e.stxnamespace,
+    e.stxkeys,
+    e.stxkind,
+    ed.stxdndistinct,
+    ed.stxddependencies,
+    ed.stxdmcv
+from
+    pg_statistic_ext e
+        join pg_statistic_ext_data ed on e.oid = ed.stxoid
+where
+        e.stxrelid = 'minirepro_foo'::regclass;
+ stxname | stxnamespace | stxkeys | stxkind | stxdndistinct | stxddependencies | stxdmcv 
+---------+--------------+---------+---------+---------------+------------------+---------
+ foo_nd  |         2200 | 1 2     | {d}     |               |                  | 
+(1 row)
+
+-- Generate minirepro
+-- start_ignore
+-- end_ignore
+drop table minirepro_foo;
+-- The above drop should also drop associated extended statistics tuples.
+-- Ensure that this is the case.
+select count(*) from pg_statistic_ext where stxname='foo_nd';
+ count 
+-------
+     0
+(1 row)
+
+-- Run minirepro
+\! psql -f /tmp/minirepro.sql regression
+You are now connected to database "regression" as user "pivotal".
+SET
+SET
+SET
+SET
+SET
+SET
+ set_config 
+------------
+ 
+(1 row)
+
+SET
+SET
+SET
+SET
+SET
+SET
+CREATE TABLE
+SET
+UPDATE 1
+-- Display extended statistics for minirepro_foo after running the minirepro
+-- script. This should produce the same result as before.
+select
+    e.stxname,
+    e.stxnamespace,
+    e.stxkeys,
+    e.stxkind,
+    ed.stxdndistinct,
+    ed.stxddependencies,
+    ed.stxdmcv
+from
+    pg_statistic_ext e
+        join pg_statistic_ext_data ed on e.oid = ed.stxoid
+where
+        e.stxrelid = 'minirepro_foo'::regclass;
+ stxname | stxnamespace | stxkeys | stxkind | stxdndistinct | stxddependencies | stxdmcv 
+---------+--------------+---------+---------+---------------+------------------+---------
+ foo_nd  |         2200 | 1 2     | {d}     |               |                  |
+(1 row)
+

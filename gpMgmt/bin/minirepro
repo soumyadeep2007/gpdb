@@ -242,6 +242,29 @@ def dump_stats(cur, oid_str, f_out, inclHLL):
 
         f_out.writelines(pstring.format(E(vals[0]), E(vals[2]), linecomment, starelid, vals[5], ',\n'.join(rowVals)))
 
+def dump_stats_ext(cur, oid_str, f_out, user):
+    query = 'SELECT e.stxrelid::regclass as relname, e.stxname, e.stxnamespace, e.stxkeys, e.stxkind, ' \
+            'ed.stxdndistinct, ed.stxddependencies, ed.stxdmcv ' \
+            'FROM pg_statistic_ext e JOIN pg_statistic_ext_data ed ' \
+            'ON e.oid = ed.stxoid WHERE e.stxrelid IN (%s)' % (oid_str)
+
+    cur.execute(query)
+
+    pstring = '--\n' \
+              '-- Table: {0}\n' \
+              '--\n' \
+              'SELECT pg_nextoid(\'pg_statistic_ext\'::regclass, \'oid\', \'pg_statistic_ext_oid_index\'::regclass) as next_oid_ext \\gset \n' \
+              'INSERT INTO pg_statistic_ext VALUES (\n' \
+              '{1});\n\n'
+              'INSERT INTO pg_statistic_ext_data VALUES (\n' \
+              '{2});\n\n'
+
+    for vals in result_iter(cur):
+        rowValsStatisticExt = formatInsertPgStatisticExt(cur, user)
+        rowValsStatisticExtData = formatInsertPgStatisticExtData(cur)
+
+        f_out.writelines(pstring.format(E(row.relname), rowValsStatisticExt, rowValsStatisticExtData))
+
 def main():
     parser = parse_cmd_line()
     options, args = parser.parse_args()

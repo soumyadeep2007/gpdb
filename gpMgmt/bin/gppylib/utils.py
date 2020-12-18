@@ -592,3 +592,22 @@ def formatInsertValuesList(row, starelid, inclHLL):
         rowVals.append('\t{0}::{1}'.format(val, typ))
 
     return rowVals
+
+def formatInsertPgStatisticExt(row, user):
+    return [
+        ':next_oid_ext',                             # oid
+        '%s::regclass' % E(row.relname),             # stxrelid
+        E(row.stxname),                              # stxname
+        E(row.stxnamespace),                         # stxnamespace
+        '%s::regrole' % user,                        # stxowner
+        'ARRAY%s::int2vector' % str(row.stxkeys),    # stxkeys
+        row.stxkind                                  # stxkind
+    ]
+
+def formatInsertPgStatisticExtData(row):
+    return [
+        ':next_oid_ext',                             # stxoid
+        '', # stxdndistinct
+        '', # stxddependencies
+        ''  # stxdmcv
+    ]

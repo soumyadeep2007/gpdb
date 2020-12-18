@@ -344,11 +344,15 @@ statext_ndistinct_deserialize(bytea *data)
 Datum
 pg_ndistinct_in(PG_FUNCTION_ARGS)
 {
-	ereport(ERROR,
+	/* TODO: statext_ndistinct_deserialize it as a sanity check? */
+	/* TODO: upstream discussion? */
+	/* Discussion: https://www.postgresql.org/message-id/20170201225248.aajzts2on4ka4ky5%40alvherre.pgsql */
+	return byteain(fcinfo);
+	/*ereport(ERROR,
 			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 			 errmsg("cannot accept a value of type %s", "pg_ndistinct")));
 
-	PG_RETURN_VOID();			/* keep compiler quiet */
+	PG_RETURN_VOID();			*//* keep compiler quiet */
 }
 
 /*

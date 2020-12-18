@@ -189,4 +189,60 @@ select
     stavalues5
 from pg_statistic where starelid='pg_tablespace'::regclass;
 
+--------------------------------------------------------------------------------
+-- Scenario: User table with extended statistics
+--------------------------------------------------------------------------------
+create table minirepro_foo(i int, j int, k int);
+insert into minirepro_foo values (1, 2, 3),(1, 2, 2),(1, 2, 2);
+create statistics foo_nd1 (ndistinct) on i, j from minirepro_foo;
+create statistics foo_nd2 (ndistinct) on i, k from minirepro_foo;
+create statistics foo_depends (dependencies) on i, k from minirepro_foo;
+create statistics foo_mcv (mcv) on j, k from minirepro_foo;
+analyze minirepro_foo;
+
+-- Display extended statistics for minirepro_foo
+select
+    e.stxname,
+    e.stxnamespace,
+    e.stxkeys,
+    e.stxkind,
+    ed.stxdndistinct,
+    ed.stxddependencies,
+    ed.stxdmcv
+from
+    pg_statistic_ext e
+        join pg_statistic_ext_data ed on e.oid = ed.stxoid
+where
+        e.stxrelid = 'minirepro_foo'::regclass;
+
+-- Generate minirepro
+
+-- start_ignore
+\! echo "select * from minirepro_foo;" > /tmp/minirepro_q.sql
+\! minirepro regression -q /tmp/minirepro_q.sql -f /tmp/minirepro.sql
+-- end_ignore
+
+drop table minirepro_foo;
+-- The above drop should also drop associated extended statistics tuples.
+-- Ensure that this is the case.
+select count(*) from pg_statistic_ext where stxname='foo_nd';
+
+-- Run minirepro
+\! psql -f /tmp/minirepro.sql regression
+
+-- Display extended statistics for minirepro_foo after running the minirepro
+-- script. This should produce the same result as before.
+select
+    e.stxname,
+    e.stxnamespace,
+    e.stxkeys,
+    e.stxkind,
+    ed.stxdndistinct,
+    ed.stxddependencies,
+    ed.stxdmcv
+from
+    pg_statistic_ext e
+        join pg_statistic_ext_data ed on e.oid = ed.stxoid
+where
+        e.stxrelid = 'minirepro_foo'::regclass;
 
