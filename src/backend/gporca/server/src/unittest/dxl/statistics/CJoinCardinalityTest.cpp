@@ -34,7 +34,7 @@ CJoinCardinalityTest::EresUnittest()
 {
 	// tests that use shared optimization context
 	CUnittest rgutSharedOptCtxt[] = {
-		GPOS_UNITTEST_FUNC(CJoinCardinalityTest::EresUnittest_Join),
+		//GPOS_UNITTEST_FUNC(CJoinCardinalityTest::EresUnittest_Join),
 		GPOS_UNITTEST_FUNC(CJoinCardinalityTest::EresUnittest_JoinNDVRemain),
 	};
 

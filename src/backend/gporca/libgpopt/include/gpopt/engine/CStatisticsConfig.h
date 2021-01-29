@@ -105,7 +105,7 @@ public:
 	{
 		return GPOS_NEW(mp) CStatisticsConfig(
 			mp, 0.75 /* damping_factor_filter */,
-			0.01 /* damping_factor_join */, 0.75 /* damping_factor_groupby */,
+			0.0 /* damping_factor_join */, 0.75 /* damping_factor_groupby */,
 			MAX_STATS_BUCKETS);
 	}
 

@@ -4420,7 +4420,7 @@ struct config_real ConfigureNamesReal_gp[] =
 			GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE
 		},
 		&optimizer_damping_factor_join,
-		0.01, 0.0, 1.0,
+		0.0, 0.0, 1.0,
 		NULL, NULL, NULL
 	},
 	{
